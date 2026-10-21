@@ -85,6 +85,7 @@ from sglang.srt.utils.common import (
     get_available_gpu_memory,
     get_device_memory_capacity,
     is_float4_e2m1fn_x2,
+    is_hcu,
     is_hip,
     is_npu,
 )
@@ -104,6 +105,7 @@ def _should_elide_dsa_index_k(*, is_draft_worker: bool) -> bool:
 
 
 _is_hip = is_hip()
+_is_hcu = is_hcu()
 
 
 def _get_dsv4_compress_state_dtypes() -> tuple[torch.dtype, torch.dtype]:
@@ -869,13 +871,23 @@ class KVCacheConfigurator:
         max_num_reqs: int,
         extra_max_context_len: int,
     ) -> ReqToTokenPool:
-        # DSPARK/DFLASH commit routes through the backend fold (KDA-only); a
-        # non-KDA model there would scatter a None intermediate_ssm and crash.
+        # Direct DFLASH commits also fold GDN on HCU's static, PP=1 pool.
+        # Other direct callers still require KDA: their snapshot scatter must
+        # not receive the None intermediate_ssm allocated by ReplaySSM.
         _algo = (get_spec().speculative_algorithm or "").upper()
+        allow_hcu_gdn_dflash_fold = (
+            _is_hcu
+            and _algo == "DFLASH"
+            and self.hybrid_gdn_config is not None
+            and self.ps.pp_size == 1
+            and not get_memory().enable_unified_memory
+            and get_disagg().disaggregation_mode == "null"
+        )
         if (
             get_exec().mamba.enable_linear_replayssm_spec
             and _algo in ("DSPARK", "DFLASH")
             and kimi_linear_config(self.model_config) is None
+            and not allow_hcu_gdn_dflash_fold
         ):
             raise ValueError(
                 "--enable-linear-replayssm-spec with DSPARK/DFLASH requires a KDA "

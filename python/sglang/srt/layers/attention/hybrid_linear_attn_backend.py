@@ -39,12 +39,13 @@ from sglang.srt.runtime_context import (
 )
 from sglang.srt.speculative.eagle_info import EagleDraftInput, EagleVerifyInput
 from sglang.srt.speculative.spec_info import SpecInput
-from sglang.srt.utils import get_bool_env_var
+from sglang.srt.utils import get_bool_env_var, is_hcu
 
 if TYPE_CHECKING:
     from sglang.srt.layers.attention.verify_mask import VerifyMask
 
 logger = logging.getLogger(__name__)
+_is_hcu = is_hcu()
 
 
 class MambaAttnBackendBase(AttentionBackend):
@@ -1265,6 +1266,37 @@ class HybridLinearAttnBackend(AttentionBackend):
         # only hit by the direct callers. Chain layout only (topk <= 1), so
         # accept_lens == last_correct_step_indices + 1.
         mamba_pool = req_pool.mamba_pool
+        if (
+            getattr(mamba_pool, "replayssm_spec_fold", False)
+            and not getattr(mamba_pool, "replayssm_is_kda", False)
+            and _is_hcu
+            and (get_spec().speculative_algorithm or "").upper() == "DFLASH"
+        ):
+            # The pool has raw verify inputs rather than full intermediate
+            # states. Fold exactly the accepted prefix, including the input
+            # corresponding to the bonus count; preserve interval tracking and
+            # conv rollback through the same helper used by generic GDN verify.
+            from sglang.kernels.ops.attention.fla.gdn_replayssm_spec_fold import (
+                commit_gdn_replayssm_fold_after_verify,
+            )
+
+            commit_gdn_replayssm_fold_after_verify(
+                spec_state=mamba_caches,
+                state_batch_indices=state_indices_tensor,
+                accept_lens=last_correct_step_indices + 1,
+                last_correct_step_indices=last_correct_step_indices,
+                mamba_track_indices=mamba_track_indices,
+                mamba_steps_to_track=mamba_steps_to_track,
+                null_block_id=-1,
+            )
+            self._update_ple_state_after_mtp_verify(
+                state_indices_tensor,
+                last_correct_step_indices,
+                mamba_track_indices,
+                mamba_steps_to_track,
+            )
+            return
+
         if getattr(mamba_pool, "replayssm_is_kda", False):
             from sglang.kernels.ops.attention.fla.kda_replayssm_spec_decode import (
                 commit_kda_replayssm_after_verify,
