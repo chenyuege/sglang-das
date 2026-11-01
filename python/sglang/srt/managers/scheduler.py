@@ -4830,9 +4830,14 @@ class Scheduler(
                         batch_result.copy_done = self.device_module.Event()
                         if batch_result.delay_sample_func is None:
                             self._relay_forward_payload(future_indices, batch_result)
-                            if _is_hip:
-                                # Cross-stream sync costs more than the tiny D2H it
-                                # overlaps.
+                            # HCU historically kept this D2H on forward_stream
+                            # because cross-stream synchronization was measured as
+                            # more expensive than the small copy. Keep that default,
+                            # but allow experiments to overlap result processing.
+                            use_async_hcu_copy = (
+                                _is_hip and os.getenv("SGLANG_HCU_ASYNC_COPY", "0") == "1"
+                            )
+                            if _is_hip and not use_async_hcu_copy:
                                 batch_result.copy_to_cpu(
                                     return_logprob=batch.return_logprob,
                                     return_hidden_states=batch.return_hidden_states,
