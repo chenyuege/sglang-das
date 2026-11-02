@@ -354,8 +354,6 @@ class DFlashAttention(nn.Module):
             and bool(getattr(rotary, "is_neox_style", False))
             and k.dtype == torch.bfloat16
             and k.ndim == 2
-            # The large-prefill shape was slower in the HCU microbenchmark.
-            and k.shape[0] <= 1024
             and k.stride(-1) == 1
             and positions.is_contiguous()
             and hasattr(rotary, "cos_sin_cache")
