@@ -345,6 +345,27 @@ class DFlashAttention(nn.Module):
         _, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
         return k, v
 
+    def apply_k_norm_rope_hcu(self, positions, k):
+        rotary = self.rotary_emb
+        if (
+            _is_hcu
+            and self.head_dim == 128
+            and int(getattr(rotary, "rotary_dim", 0)) == 128
+            and bool(getattr(rotary, "is_neox_style", False))
+            and k.dtype == torch.bfloat16
+            and k.ndim == 2
+            and k.stride(-1) == 1
+            and positions.is_contiguous()
+            and hasattr(rotary, "cos_sin_cache")
+        ):
+            from sglang.kernels.ops.speculative.hcu_k_norm_rope import hcu_k_norm_rope
+
+            return hcu_k_norm_rope(
+                k, self.k_norm.weight, positions, rotary.cos_sin_cache,
+                self.head_dim, self.k_norm.variance_epsilon,
+            )
+        return self.apply_k_rope(positions, self.apply_k_norm(k))
+
     def apply_k_norm(self, k: torch.Tensor) -> torch.Tensor:
         k_by_head = k.reshape(-1, self.head_dim)
         k_by_head = self.k_norm(k_by_head)

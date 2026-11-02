@@ -1420,8 +1420,11 @@ class DFlashWorkerV2(BaseSpecWorker):
                         layer, ctx_hidden
                     )
                     k, v = attn.kv_proj_only(layer_ctx_hidden)
-                    k = attn.apply_k_norm(k)
-                    k = attn.apply_k_rope(positions, k)
+                    if _is_hcu and os.getenv("SGLANG_HCU_DFLASH_FUSED_K_NORM_ROPE", "0") == "1":
+                        k = attn.apply_k_norm_rope_hcu(positions, k)
+                    else:
+                        k = attn.apply_k_norm(k)
+                        k = attn.apply_k_rope(positions, k)
                     k = k.view(-1, attn.num_kv_heads, attn.head_dim)
                     v = v.view(-1, attn.num_kv_heads, attn.head_dim)
 
@@ -1473,8 +1476,11 @@ class DFlashWorkerV2(BaseSpecWorker):
                 _, k, v = attn.forward_prepare_npu(ctx_positions, layer_ctx_hidden)
             else:
                 k, v = attn.kv_proj_only(layer_ctx_hidden)
-                k = attn.apply_k_norm(k)
-                k = attn.apply_k_rope(ctx_positions, k)
+                if _is_hcu and os.getenv("SGLANG_HCU_DFLASH_FUSED_K_NORM_ROPE", "0") == "1":
+                    k = attn.apply_k_norm_rope_hcu(ctx_positions, k)
+                else:
+                    k = attn.apply_k_norm(k)
+                    k = attn.apply_k_rope(ctx_positions, k)
             k = k.view(-1, attn.num_kv_heads, attn.head_dim)
             v = v.view(-1, attn.num_kv_heads, attn.head_dim)
             self.draft_model_runner.token_to_kv_pool.set_kv_buffer(
