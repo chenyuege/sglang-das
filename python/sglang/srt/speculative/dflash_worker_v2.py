@@ -312,7 +312,6 @@ class DFlashWorkerV2(BaseSpecWorker):
         self._warned_sampling_fallback = False
         self._draft_probs_buf = None
         self._logged_first_verify = False
-        self._verify_graph_debug_count = 0
 
         bundle = build_draft_tp_worker(
             server_args=server_args,
@@ -2027,16 +2026,6 @@ class DFlashWorkerV2(BaseSpecWorker):
         )
         logits_output = target_out.logits_output
         can_run_cuda_graph = target_out.can_run_cuda_graph
-        if _is_hcu and os.getenv("SGLANG_HCU_DFLASH_VERIFY_DEBUG", "0") == "1":
-            self._verify_graph_debug_count += 1
-            if self._verify_graph_debug_count <= 4 or self._verify_graph_debug_count % 32 == 0:
-                logger.info(
-                    "DFLASH HCU verify graph status: step=%d graph=%s bs=%d tokens=%d",
-                    self._verify_graph_debug_count,
-                    can_run_cuda_graph,
-                    int(verify_forward_batch.batch_size),
-                    int(verify_forward_batch.input_ids.numel()),
-                )
 
         grammar_mask = None
         if batch.has_grammar:
