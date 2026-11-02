@@ -336,7 +336,7 @@ from sglang.srt.utils import (
     suppress_other_loggers,
     triton_load_watch,
 )
-from sglang.srt.utils.common import is_hcu, is_npu
+from sglang.srt.utils.common import is_npu
 from sglang.srt.utils.hf_transformers_utils import (
     get_processor,
     get_tokenizer,
@@ -398,7 +398,6 @@ def _accumulate_decode_moment(
 
 _is_npu = is_npu()
 _is_hip = is_hip()
-_is_hcu = is_hcu()
 
 
 class Scheduler(
@@ -1275,20 +1274,7 @@ class Scheduler(
             else batch.forward_mode.is_extend()
         )
         if is_extend:
-            interval = self.prefill_decode_interval
-            # Keep the existing fixed interval for every backend by default.
-            # HCU experiments may opt into a queue-aware cadence: when the
-            # waiting queue grows, admit prefill more often to reduce TTFT;
-            # when it drains, give decode more uninterrupted steps for TPOT.
-            if _is_hcu and os.getenv("SGLANG_HCU_ADAPTIVE_PREFILL_INTERVAL", "0") == "1":
-                waiting = len(self.waiting_queue)
-                if waiting >= 16:
-                    interval = max(1, interval // 4)
-                elif waiting >= 8:
-                    interval = max(1, interval // 2)
-                elif waiting <= 2:
-                    interval = min(max(1, interval * 2), 16)
-            self._prefill_decode_interval_remaining = interval
+            self._prefill_decode_interval_remaining = self.prefill_decode_interval
 
     def init_metrics_reporter(
         self, tp_rank: int, pp_rank: int, dp_rank: Optional[int]
